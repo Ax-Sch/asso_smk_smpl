@@ -12,9 +12,9 @@ rule all:
 
 rule prune_common:
 	input:
-		fam=config["genotype"]["genotype_plink_prefix"] + ".fam",
-		bim=config["genotype"]["genotype_plink_prefix"] + ".bim",
-		bed=config["genotype"]["genotype_plink_prefix"] + ".bed",
+		fam=config["genotype"]["covar_plink_pref"] + ".fam",
+		bim=config["genotype"]["covar_plink_pref"] + ".bim",
+		bed=config["genotype"]["covar_plink_pref"] + ".bed",
 	output:
 		pruned_variant_set="results/prune_common/prune_common.prune.in",
 	resources: cpus=1, mem_mb=18000, time_job=720, partition=config["medium_part"],
@@ -37,9 +37,9 @@ rule prune_common:
 
 rule PCA_for_cov:
 	input:
-		fam=config["genotype"]["genotype_plink_prefix"] + ".fam",
-		bim=config["genotype"]["genotype_plink_prefix"] + ".bim",
-		bed=config["genotype"]["genotype_plink_prefix"] + ".bed",
+		fam=config["genotype"]["covar_plink_pref"] + ".fam",
+		bim=config["genotype"]["covar_plink_pref"] + ".bim",
+		bed=config["genotype"]["covar_plink_pref"] + ".bed",
 		pruned_variant_set="results/prune_common/prune_common.prune.in",
 	output:
 		eigenv="results/covar_PCA/common_vars.eigenvec"
@@ -86,22 +86,42 @@ rule make_regenie_cov:
 	script: "scripts/make_cov.R"
 
 
-rule convert_imputed_vcf:
+
+# generates the import command for plink2:
+def generate_plink2_import_command(input):
+	# copy variables to variables with shorter names:
+	asso_filetype=config["genotype"]["asso_filetype"]
+	asso_imputed=config["genotype"]["asso_imputed"]
+	dosage_field=config["genotype"]["dosage_field"]
+	asso_variants=input["asso_variants"]
+	#construct import command for plink2
+	plink2_import_command=""
+	if asso_filetype=="vcf":
+		plink2_import_command="--double-id --vcf " + asso_variants
+		if asso_imputed==True:
+			plink2_import_command=plink2_import_command + " dosage=" + dosage_field
+	elif asso_filetype=="plink1":
+		plink2_import_command="--bfile " + asso_variants[:-4]
+	print("plink2 import parameters: " + plink2_import_command)
+	return(plink2_import_command)
+
+
+# convert variants to plink2 format, as this works well with regenie
+rule convert_asso_variants:
 	input:
-		imputed_vcf=config["genotype"]["imp_prefix"] + "{contig}" + config["genotype"]["imp_postfix"],
+		asso_variants=config["genotype"]["asso_prefix"] + "{contig}" + config["genotype"]["asso_postfix"],
 	output:
-		pgen="results/imp_converted/chr{contig}.pgen",
-		psam="results/imp_converted/chr{contig}.psam",
-		pvar="results/imp_converted/chr{contig}.pvar",
+		pgen="results/asso_variants/chr{contig}.pgen",
+		psam="results/asso_variants/chr{contig}.psam",
+		pvar="results/asso_variants/chr{contig}.pvar",
 	params:
 		plink_out=lambda wildcards, output: output["pgen"][:-5],
-		dosage_param=config["genotype"]["dosage_param"]
+		import_command=lambda wildcards, input: generate_plink2_import_command(input)
 	conda: "envs/plink2.yaml"
 	shell:
 		"""
 		plink2 \
-		--vcf {input.imputed_vcf} dosage={params.dosage_param} \
-		--double-id \
+		{params.import_command} \
 		--make-pgen \
 		--threads 7 \
 		--out {params.plink_out}
@@ -119,20 +139,20 @@ rule regenie_association:
 	input:
 		cov="results/pheno_cov/cov.cov",
 		pheno="results/pheno_cov/pheno.pheno",
-		step2_pgen="results/imp_converted/chr{contig}.pgen",
+		step2_gen_file="results/asso_variants/chr{contig}.pgen",
 	output:
 		step2_NQ2=expand("results/regenie_association/{contig}_{phenotypes}.regenie.gz", 
 			phenotypes=config["phenotype"]["phenotype_columns"],
 			allow_missing=True)
 	params:
 		out_prefix="results/regenie_association/{contig}",
-		plink_in=lambda wildcards, input: input["step2_pgen"][:-5],
+		pgen=lambda wildcards, input: input["step2_gen_file"][:-5],
 	conda: "envs/regenie.yaml"
 	shell:
 		"""
 		regenie \
 		--step 2 \
-		--pgen {params.plink_in} \
+		--pgen {params.pgen} \
 		--phenoFile {input.pheno} \
 		--covarFile {input.cov} \
 		--bt \
@@ -147,7 +167,7 @@ rule regenie_association:
 		
 rule merge_regenie_results:
 	input:
-		expand("results/regenie_association/{contig}_{phenotypes}.regenie.gz", contig=config["genotype"]["imp_contigs"], allow_missing=True), 
+		expand("results/regenie_association/{contig}_{phenotypes}.regenie.gz", contig=config["genotype"]["asso_contigs"], allow_missing=True), 
 	output:
 		merged_assoc="results/regenie_association_merged/{phenotypes}.regenie.gz",
 	params:

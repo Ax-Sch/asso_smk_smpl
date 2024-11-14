@@ -8,12 +8,14 @@ phenotype:
 # potentially implement: binary vs. continous phenotypes
 
 genotype:
-  genotype_plink_prefix: "input_files/example_genotype/fisherEUR"
-  imp_prefix: "input_files/example_genotype/fisherEUR_"
-  imp_contigs:
+  covar_plink_pref: "input_files/example_genotype/fisherEUR" # (genotyped/sequenced) variants that will be used to perform PCA to generate PCs as covariates; bed/bim/fam files expected
+  asso_prefix: "input_files/example_genotype/fisherEUR_" # filenames are constructed as: asso_prefix + asso_contigs + asso_postfix
+  asso_contigs: # multiple chromosomes can be given here (if applicable)
     - "all"
-  imp_postfix: ".vcf.gz"
-  dosage_param: "GP-force"
+  asso_postfix: ".vcf.gz" # e.g. vcf.gz or .bim (if plink1) 
+  asso_filetype: "vcf" # currently only vcf and plink1 (=bed/bim/fam) is supported
+  asso_imputed: False # set to True, if file was imputed and if dosages should be used
+  dosage_field: "GP-force" # vcf field of which dosages should be taken from. Only used if asso_imputed: True and asso_filetype: "vcf"
 
 # cluster configuration
 medium_part: "medium"
